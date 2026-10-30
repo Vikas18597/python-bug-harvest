@@ -56,8 +56,13 @@ def frozen_requirements(text: str | None, repo: str) -> str:
     keep = []
     for line in (text or "").splitlines():
         s = line.strip()
-        if not s or s.startswith(("#", "-e ", "--editable")) or " @ file://" in s or "git+" in s:
+        if not s or s.startswith(("#", "-e ", "--editable")) or "git+" in s:
             continue
+        if " @ file://" in s:
+            # conda-built packages: recover the pin from a wheel filename, else keep the bare name
+            name, url = (p.strip() for p in s.split(" @ ", 1))
+            m = re.search(r"/([A-Za-z0-9_.]+)-(\d[^-/]*)-[^/]*\.whl", url)
+            s = f"{name}=={m.group(2)}" if m else name
         if _strip_pin(s).lower().replace("_", "-") == project:
             continue
         keep.append(s)
@@ -126,7 +131,7 @@ def _req_file_step(rel: str, prefix: str = "uv pip install") -> Step:
 
 
 def rebench_tiers(cand: dict, repo_dir: Path, target_python: str) -> list[Tier]:
-    """Two tiers for rows that ship an install_config (SWE-rebench)."""
+    """Tiers for rows that ship an install_config (SWE-rebench)."""
     cfg = cand.get("install_config") or {}
     test_cmd = cfg.get("test_cmd") or DEFAULT_TEST_CMD
     env = {k: str(v) for k, v in (cfg.get("env_vars") or {}).items() if v is not None}
@@ -152,7 +157,7 @@ def rebench_tiers(cand: dict, repo_dir: Path, target_python: str) -> list[Tier]:
         latest.append(Step("uv pip install " + " ".join(shlex.quote(_strip_pin(p)) for p in pip_packages), soft=True))
     latest.append(install)
 
-    # Tier 2: the dataset's own Python version and pinned `pip freeze`.
+    # Tiers 2-3: the dataset's pinned `pip freeze`, first on the target Python, then on the dataset's Python.
     pinned = _common_head(cfg)
     if frozen_requirements(cand.get("requirements"), cand["repo"]).strip():
         pinned.append(Step('uv pip install --no-deps -r "$HARVEST_FROZEN"', soft=True,
@@ -164,10 +169,11 @@ def rebench_tiers(cand: dict, repo_dir: Path, target_python: str) -> list[Tier]:
     pinned.append(install)
 
     dataset_python = str(cfg.get("python") or FALLBACK_PYTHON)
-    return [
-        Tier(f"py{target_python}-recipe", target_python, latest, test_cmd, env),
-        Tier(f"py{dataset_python}-pinned", dataset_python, pinned, test_cmd, env),
-    ]
+    tiers = [Tier(f"py{target_python}-recipe", target_python, latest, test_cmd, env)]
+    if dataset_python != target_python:
+        tiers.append(Tier(f"py{target_python}-pinned", target_python, pinned, test_cmd, env))
+    tiers.append(Tier(f"py{dataset_python}-pinned", dataset_python, pinned, test_cmd, env))
+    return tiers
 
 
 def auto_tiers(repo_dir: Path, target_python: str, version: str | None = None) -> list[Tier]:

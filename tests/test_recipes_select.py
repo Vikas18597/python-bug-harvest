@@ -53,10 +53,12 @@ def test_uvify_and_frozen_requirements():
     assert recipes.uvify("pip install -e .[dev]") == "uv pip install -e .[dev]"
     assert recipes.uvify("cd x && python -m pip install foo") == "cd x && uv pip install foo"
     frozen = recipes.frozen_requirements(
-        "foo==1.0\n-e git+https://github.com/o/my_proj.git@abc#egg=my_proj\nbar @ file:///tmp/bar\nmy-proj==0.1\n# c\nbaz==2\n",
+        "foo==1.0\n-e git+https://github.com/o/my_proj.git@abc#egg=my_proj\nbar @ file:///croot/bar_1/work\n"
+        "numpy @ file:///croot/np/work/dist/numpy-2.2.4-cp311-cp311-linux_x86_64.whl#sha256=ab\nmy-proj==0.1\n# c\nbaz==2\n",
         "o/my_proj",
     )
-    assert frozen == "foo==1.0\nbaz==2\n"
+    # conda `@ file://` lines keep their pin when the wheel name reveals it, else become bare names
+    assert frozen == "foo==1.0\nbar\nnumpy==2.2.4\nbaz==2\n"
 
 
 def test_rebench_tiers(tmp_path: Path):
@@ -64,8 +66,9 @@ def test_rebench_tiers(tmp_path: Path):
     cfg = {"python": "3.9", "packages": "requirements.txt", "reqs_path": ["requirements.txt", "missing.txt"],
            "pip_packages": ["pytest==7.0"], "pre_install": ["apt-get update"], "install": "pip install -e .[dev]",
            "test_cmd": "pytest -rA", "env_vars": {"A": "1", "B": None}}
-    latest, pinned = recipes.tiers_for(_cand(install_config=cfg, requirements="foo==1\n"), tmp_path, "3.13")
-    assert (latest.python, pinned.python) == ("3.13", "3.9")
+    latest, pinned_target, pinned = recipes.tiers_for(_cand(install_config=cfg, requirements="foo==1\n"), tmp_path, "3.13")
+    assert (latest.python, pinned_target.python, pinned.python) == ("3.13", "3.13", "3.9")
+    assert pinned_target.steps == pinned.steps
     cmds = [s.cmd for s in latest.steps]
     assert "uv pip install -r requirements.txt" in cmds and not any("missing.txt" in c for c in cmds)
     assert "uv pip install pytest" in cmds  # pins dropped on the target-Python tier
@@ -78,7 +81,7 @@ def test_rebench_tiers(tmp_path: Path):
 def test_rebench_tier_edge_cases(tmp_path: Path):
     cfg = {"python": "3.9", "packages": "numpy=1.2 scipy", "pip_packages": ["pytest pytest-cov==4"],
            "pre_install": ["apt-get install -y gcc libfoo-dev"]}
-    latest, pinned = recipes.tiers_for(_cand(install_config=cfg, version="7.0"), tmp_path, "3.13")
+    latest, _, pinned = recipes.tiers_for(_cand(install_config=cfg, version="7.0"), tmp_path, "3.13")
     cmds = [s.cmd for s in latest.steps]
     # multi-package pip_packages entries are split; pins dropped on the target tier
     assert "uv pip install pytest pytest-cov" in cmds
