@@ -1,0 +1,15 @@
+.venv/
+.cache/
+out/
+work/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+# harvested outputs are never committed
+*.tar.gz
+*.parquet
+harvest.jsonl
+rejections.jsonl
+dataset-metadata.json
+kaggle.json

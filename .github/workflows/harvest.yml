@@ -1,0 +1,116 @@
+name: harvest
+
+# Rebuild and verify a candidate list on ubuntu runners, one matrix job per shard.
+# Trigger manually (workflow_dispatch) or by pushing a `harvest-run/**` branch.
+on:
+  workflow_dispatch:
+    inputs:
+      candidates:
+        description: Candidate list file (in this repo)
+        default: candidates/trial-20.json
+      per_job:
+        description: Candidates per matrix job (raise for large lists; matrix limit is 256 jobs)
+        default: "1"
+      max_parallel:
+        description: Max concurrent verify jobs
+        default: "20"
+      target_python:
+        description: Python version tried first
+        default: "3.13"
+      kaggle_slug:
+        description: Kaggle dataset slug (upload is skipped unless KAGGLE_USERNAME/KAGGLE_KEY secrets exist)
+        default: python-bug-harvest
+  push:
+    branches: ["harvest-run/**"]
+
+permissions:
+  contents: read
+
+env:
+  CANDIDATES: ${{ inputs.candidates || 'candidates/trial-20.json' }}
+  PER_JOB: ${{ inputs.per_job || '1' }}
+  TARGET_PYTHON: ${{ inputs.target_python || '3.13' }}
+  KAGGLE_SLUG: ${{ inputs.kaggle_slug || 'python-bug-harvest' }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyarrow
+      - uses: actions/cache@v4
+        with:
+          path: .cache/datasets
+          key: datasets-${{ hashFiles('harvest/sources.py') }}
+      - id: plan
+        run: python -m harvest plan --candidates "$CANDIDATES" --out out/plan --per-job "$PER_JOB"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plan
+          path: out/plan
+          retention-days: 7
+
+  verify:
+    needs: plan
+    name: verify ${{ matrix.ids }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(inputs.max_parallel || '20') }}
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: plan
+          path: out/plan
+      - name: Verify candidates
+        env:
+          IDS: ${{ matrix.ids }}
+        run: python3 -m harvest verify --plan out/plan/candidates.jsonl --ids "$IDS" --out out/results --python "$TARGET_PYTHON"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: result-${{ matrix.shard }}
+          path: out/results
+          retention-days: 7
+
+  aggregate:
+    needs: [plan, verify]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: plan
+          path: out/plan
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: result-*
+          path: out/results
+          merge-multiple: true
+      - run: python -m harvest aggregate --results out/results --plan out/plan/candidates.jsonl --out out/dataset
+      - uses: actions/upload-artifact@v4
+        with:
+          name: harvest-dataset
+          path: out/dataset
+          retention-days: 7
+      - name: Upload to private Kaggle dataset (skipped without secrets)
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          if [ -n "$KAGGLE_USERNAME" ] && [ -n "$KAGGLE_KEY" ]; then pip install -q kaggle; fi
+          python -m harvest kaggle-upload --dir out/dataset --slug "$KAGGLE_SLUG" --message "run ${{ github.run_id }}"
