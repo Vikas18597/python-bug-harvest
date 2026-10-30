@@ -129,6 +129,10 @@ python -m harvest select --source swe-rebench --split filtered --limit 20 --crea
 i.e. 20 different projects, bugs created 2023 or later, preferring rows whose recorded Python is closest to 3.13
 and whose install recipe is simplest.
 
+Trial result (Actions, `ubuntu-latest`, one candidate per job): **20 / 20 verified**. Python used was 3.13 for 16 bugs
+and 3.12 for 4. Wall time per bug: mean 38 s, median 24 s, max 113 s. Snapshots average 4.1 MB (82 MB in total).
+The run used 22 jobs: about 17 runner-minutes, or 29 minutes with per-job rounding.
+
 ## Licence
 
 MIT – see [LICENSE](LICENSE). This licence covers the harvester code only, not the harvested data.
