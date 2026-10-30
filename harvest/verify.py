@@ -107,7 +107,7 @@ def _sha256(path: Path) -> str:
 
 def clone(cand: dict, repo: Path, env: dict, log: Log, timeout: int) -> bool:
     repo.mkdir(parents=True, exist_ok=True)
-    url = f"https://github.com/{cand['repo']}.git"
+    url = cand.get("repo_url") or f"https://github.com/{cand['repo']}.git"
     for cmd in (
         f"git init -q && git remote add origin {shlex.quote(url)}",
         f"git -c protocol.version=2 fetch -q --depth 1 origin {cand['base_commit']}",
@@ -124,8 +124,20 @@ def _reset(cand: dict, repo: Path, env: dict, log: Log) -> None:
     sh(f"git reset -q --hard {cand['base_commit']} && git clean -qffdx", repo, env, log, 300)
 
 
+def _retry_pieces(step: recipes.Step, repo: Path, env: dict) -> list[str]:
+    if step.retry_each:
+        return list(step.retry_each)
+    if step.retry_lines_of:
+        path = Path(step.retry_lines_of.replace("$HARVEST_FROZEN", env.get("HARVEST_FROZEN", "")))
+        path = path if path.is_absolute() else repo / path
+        if path.is_file():
+            lines = recipes.requirement_lines(path.read_text(encoding="utf-8", errors="replace"))
+            return [f"{step.retry_line_prefix} {line if line.startswith('-') else shlex.quote(line)}" for line in lines]
+    return []
+
+
 def run_tier(cand: dict, tier: recipes.Tier, repo: Path, work: Path, base_env: dict, log: Log, timeouts: dict) -> dict:
-    attempt: dict = {"tier": tier.name, "python": tier.python, "reason": None}
+    attempt: dict = {"tier": tier.name, "python": tier.python, "reason": None, "env": tier.env}
     venv = work / f"venv-{tier.name}"
     shutil.rmtree(venv, ignore_errors=True)
     frozen = work / "frozen-requirements.txt"
@@ -160,8 +172,21 @@ def run_tier(cand: dict, tier: recipes.Tier, repo: Path, work: Path, base_env: d
                 steps_log.append({"cmd": cmd, "rc": None, "soft": step.soft})
                 continue
             cmd = wrapped
-        rc, _ = sh(cmd, repo, env, log, timeouts["step"])
-        steps_log.append({"cmd": step.cmd, "rc": rc, "soft": step.soft})
+        step_env = {**env, **step.env}
+        rc, _ = sh(cmd, repo, step_env, log, timeouts["step"])
+        entry = {"cmd": step.cmd, "rc": rc, "soft": step.soft}
+        if step.env:
+            entry["env"] = step.env
+        if rc != 0:
+            retried = _retry_pieces(step, repo, step_env)
+            if retried:
+                log.write(f"[harvest] step failed as a whole; retrying {len(retried)} piece(s) one by one")
+                results = []
+                for piece in retried:
+                    piece_cmd = _privileged(piece) if step.privileged else piece
+                    results.append(sh(piece_cmd, repo, step_env, log, timeouts["step"])[0] if piece_cmd else 1)
+                entry["retried"] = {"ok": sum(r == 0 for r in results), "total": len(results)}
+        steps_log.append(entry)
         if rc != 0 and not step.soft:
             attempt.update(reason="env_install_failed", install_steps=steps_log, install_seconds=round(time.monotonic() - t0, 1))
             return attempt
@@ -207,7 +232,7 @@ def verify(cand: dict, out_root: Path, *, target_python: str = "3.13", timeouts:
            keep_work: bool = False) -> dict:
     timeouts = {**DEFAULT_TIMEOUTS, **(timeouts or {})}
     iid = cand["instance_id"]
-    out = out_root / iid
+    out = Path(out_root).resolve() / iid
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
     log = Log(out / "harvest.log")
@@ -267,6 +292,7 @@ def verify(cand: dict, out_root: Path, *, target_python: str = "3.13", timeouts:
             python_version=result["python_version"],
             install_tier=result["tier"],
             install_commands=[s["cmd"] for s in attempt.get("install_steps", [])],
+            install_env={**attempt.get("env", {}), **{k: v for s in attempt.get("install_steps", []) for k, v in s.get("env", {}).items()}},
             test_cmd=result["test_cmd"],
             snapshot=result["snapshot"]["file"],
             snapshot_sha256=result["snapshot"]["sha256"],

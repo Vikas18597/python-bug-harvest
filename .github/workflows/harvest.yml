@@ -38,18 +38,18 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install pyarrow
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .cache/datasets
           key: datasets-${{ hashFiles('harvest/sources.py') }}
       - id: plan
         run: python -m harvest plan --candidates "$CANDIDATES" --out out/plan --per-job "$PER_JOB"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: plan
           path: out/plan
@@ -66,9 +66,9 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - uses: actions/download-artifact@v8
         with:
           name: plan
           path: out/plan
@@ -76,7 +76,7 @@ jobs:
         env:
           IDS: ${{ matrix.ids }}
         run: python3 -m harvest verify --plan out/plan/candidates.jsonl --ids "$IDS" --out out/results --python "$TARGET_PYTHON"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: result-${{ matrix.shard }}
@@ -88,21 +88,21 @@ jobs:
     if: always() && needs.plan.result == 'success'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: plan
           path: out/plan
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: result-*
           path: out/results
           merge-multiple: true
       - run: python -m harvest aggregate --results out/results --plan out/plan/candidates.jsonl --out out/dataset
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: harvest-dataset
           path: out/dataset

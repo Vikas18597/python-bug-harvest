@@ -21,6 +21,12 @@ class Step:
     cmd: str
     soft: bool = False
     privileged: bool = False
+    # If the step fails, retry these commands one by one (e.g. one apt package at a time).
+    retry_each: list[str] = field(default_factory=list)
+    # If the step fails, re-install each line of this requirements file on its own with this prefix.
+    retry_lines_of: str | None = None
+    retry_line_prefix: str = "uv pip install"
+    env: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -72,10 +78,51 @@ def _env_yml_deps(path: Path) -> list[str]:
     return names
 
 
+def _split_packages(entries) -> list[str]:
+    """Entries may hold several space-separated requirements in one string."""
+    return [p for e in (entries or []) for p in str(e).split() if p]
+
+
+def _pre_install_step(cmd: str) -> Step:
+    retry: list[str] = []
+    m = re.match(r"^(apt-get install(?: -y| --no-install-recommends)*) (.+)$", cmd.strip())
+    if m and len(m.group(2).split()) > 1:
+        retry = [f"{m.group(1)} {pkg}" for pkg in m.group(2).split()]
+    return Step(cmd, soft=True, privileged=True, retry_each=retry)
+
+
+def scm_version_env(version: str | None) -> dict[str, str]:
+    """Shallow clones have no tags, so setuptools-scm/hatch-vcs would report 0.1.dev1 and break
+    resolvers that need the real version; pretend the dataset's recorded version instead."""
+    if version and re.fullmatch(r"\d+(\.\d+)*", version):
+        parts = version.split(".") + ["0"] * 3
+        return {"SETUPTOOLS_SCM_PRETEND_VERSION": ".".join(parts[:3])}
+    return {}
+
+
 def _common_head(cfg: dict) -> list[Step]:
-    steps = [Step(p, soft=True, privileged=True) for p in (cfg.get("pre_install") or [])]
+    steps = [_pre_install_step(p) for p in (cfg.get("pre_install") or [])]
     steps.append(Step("uv pip install setuptools wheel pytest"))
     return steps
+
+
+def _conda_to_pip(spec: str) -> str:
+    """`name=1.2` (conda pin) -> `name==1.2`; pip specs pass through unchanged."""
+    return re.sub(r"^([A-Za-z0-9_.\-]+)=([^=].*)$", r"\1==\2", spec)
+
+
+def requirement_lines(text: str) -> list[str]:
+    """Individual requirement lines of a requirements file, for one-by-one retries."""
+    out = []
+    for line in text.splitlines():
+        line = line.split(" #", 1)[0].strip()
+        if line and not line.startswith("#") and not line.endswith("\\"):
+            out.append(line)
+    return out
+
+
+def _req_file_step(rel: str, prefix: str = "uv pip install") -> Step:
+    return Step(f"{prefix} -r {shlex.quote(rel)}", soft=True, retry_lines_of=rel, retry_line_prefix=prefix)
 
 
 def rebench_tiers(cand: dict, repo_dir: Path, target_python: str) -> list[Tier]:
@@ -83,16 +130,16 @@ def rebench_tiers(cand: dict, repo_dir: Path, target_python: str) -> list[Tier]:
     cfg = cand.get("install_config") or {}
     test_cmd = cfg.get("test_cmd") or DEFAULT_TEST_CMD
     env = {k: str(v) for k, v in (cfg.get("env_vars") or {}).items() if v is not None}
-    install = uvify(cfg.get("install") or "pip install -e .")
+    install = Step(uvify(cfg.get("install") or "pip install -e ."), env=scm_version_env(cand.get("version")))
     packages = (cfg.get("packages") or "").strip()
-    pip_packages = [p for p in (cfg.get("pip_packages") or []) if p]
+    pip_packages = _split_packages(cfg.get("pip_packages"))
 
     # Tier 1: the target Python with the project's own (unpinned) dependency declarations.
     latest = _common_head(cfg)
     if packages == "requirements.txt":
         for rel in cfg.get("reqs_path") or []:
             if (repo_dir / rel).is_file():
-                latest.append(Step(f"uv pip install -r {shlex.quote(rel)}", soft=True))
+                latest.append(_req_file_step(rel))
     elif packages == "environment.yml":
         for rel in cfg.get("env_yml_path") or ["environment.yml"]:
             if (repo_dir / rel).is_file():
@@ -103,17 +150,18 @@ def rebench_tiers(cand: dict, repo_dir: Path, target_python: str) -> list[Tier]:
         latest.append(Step("uv pip install " + " ".join(shlex.quote(_strip_pin(p)) for p in packages.split()), soft=True))
     if pip_packages:
         latest.append(Step("uv pip install " + " ".join(shlex.quote(_strip_pin(p)) for p in pip_packages), soft=True))
-    latest.append(Step(install))
+    latest.append(install)
 
     # Tier 2: the dataset's own Python version and pinned `pip freeze`.
     pinned = _common_head(cfg)
     if frozen_requirements(cand.get("requirements"), cand["repo"]).strip():
-        pinned.append(Step('uv pip install --no-deps -r "$HARVEST_FROZEN"', soft=True))
+        pinned.append(Step('uv pip install --no-deps -r "$HARVEST_FROZEN"', soft=True,
+                           retry_lines_of="$HARVEST_FROZEN", retry_line_prefix="uv pip install --no-deps"))
     if packages not in _SPECIAL_PACKAGES:
-        pinned.append(Step("uv pip install " + " ".join(shlex.quote(p) for p in packages.split()), soft=True))
+        pinned.append(Step("uv pip install " + " ".join(shlex.quote(_conda_to_pip(p)) for p in packages.split()), soft=True))
     if pip_packages:
         pinned.append(Step("uv pip install " + " ".join(shlex.quote(p) for p in pip_packages), soft=True))
-    pinned.append(Step(install))
+    pinned.append(install)
 
     dataset_python = str(cfg.get("python") or FALLBACK_PYTHON)
     return [
@@ -122,7 +170,7 @@ def rebench_tiers(cand: dict, repo_dir: Path, target_python: str) -> list[Tier]:
     ]
 
 
-def auto_tiers(repo_dir: Path, target_python: str) -> list[Tier]:
+def auto_tiers(repo_dir: Path, target_python: str, version: str | None = None) -> list[Tier]:
     """Heuristic tiers for sources without install specs (SWE-bench, SWE-Gym)."""
 
     def steps() -> list[Step]:
@@ -134,10 +182,11 @@ def auto_tiers(repo_dir: Path, target_python: str) -> list[Tier]:
                 rel = p.relative_to(repo_dir).as_posix()
                 if rel not in seen:
                     seen.add(rel)
-                    out.append(Step(f"uv pip install -r {shlex.quote(rel)}", soft=True))
-        out.append(Step('uv pip install -e ".[test,tests,testing,dev]" || uv pip install -e .'))
+                    out.append(_req_file_step(rel))
+        out.append(Step('uv pip install -e ".[test,tests,testing,dev]" || uv pip install -e .', env=scm_env))
         return out
 
+    scm_env = scm_version_env(version)
     return [
         Tier(f"py{target_python}-auto", target_python, steps()),
         Tier(f"py{FALLBACK_PYTHON}-auto", FALLBACK_PYTHON, steps()),
@@ -147,7 +196,7 @@ def auto_tiers(repo_dir: Path, target_python: str) -> list[Tier]:
 def tiers_for(cand: dict, repo_dir: Path, target_python: str) -> list[Tier]:
     if cand.get("install_config"):
         return rebench_tiers(cand, repo_dir, target_python)
-    return auto_tiers(repo_dir, target_python)
+    return auto_tiers(repo_dir, target_python, cand.get("version"))
 
 
 def test_files(cand: dict, repo_dir: Path) -> list[str]:
