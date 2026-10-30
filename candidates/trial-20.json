@@ -1,0 +1,62 @@
+{
+  "source": "swe-rebench",
+  "dataset": "nebius/SWE-rebench",
+  "revision": "89cdfbab4ab1bd8f5a658bb212d1b63624f4f881",
+  "split": "filtered",
+  "criteria": {
+    "limit": 20,
+    "created_from": "2023",
+    "exclude_projects": [
+      "fastapi",
+      "httpx",
+      "requests",
+      "rich"
+    ],
+    "one_per_project": true,
+    "order": "dataset python version desc, simpler recipe, created_at desc, instance_id"
+  },
+  "instance_ids": [
+    "intel__code-base-investigator-178",
+    "allenai__rslearn-142",
+    "All-Hands-AI__openhands-aci-55",
+    "pyodide__pyodide-build-52",
+    "lanl__scico-561",
+    "BoboTiG__ebook-reader-dict-2151",
+    "DRMacIver__shrinkray-7",
+    "ethz-spylab__agentdojo-5",
+    "casbin__pycasbin-346",
+    "home-assistant__core-134506",
+    "zarr-developers__zarr-python-3015",
+    "astropy__astropy-18005",
+    "networkx__networkx-7928",
+    "SpikeInterface__spikeinterface-3737",
+    "qBraid__pyqasm-155",
+    "juaAI__stationbench-41",
+    "neuroinformatics-unit__movement-432",
+    "sphinx-doc__sphinx-13382",
+    "tianocore__edk2-pytool-library-698",
+    "ipython__ipython-14695"
+  ],
+  "projects": [
+    "intel/code-base-investigator",
+    "allenai/rslearn",
+    "All-Hands-AI/openhands-aci",
+    "pyodide/pyodide-build",
+    "lanl/scico",
+    "BoboTiG/ebook-reader-dict",
+    "DRMacIver/shrinkray",
+    "ethz-spylab/agentdojo",
+    "casbin/pycasbin",
+    "home-assistant/core",
+    "zarr-developers/zarr-python",
+    "astropy/astropy",
+    "networkx/networkx",
+    "SpikeInterface/spikeinterface",
+    "qBraid/pyqasm",
+    "juaAI/stationbench",
+    "neuroinformatics-unit/movement",
+    "sphinx-doc/sphinx",
+    "tianocore/edk2-pytool-library",
+    "ipython/ipython"
+  ]
+}

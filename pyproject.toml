@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "python-bug-harvest"
+version = "0.1.0"
+description = "Rebuild public Python bug datasets into runnable, test-verified tasks"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = ["pyarrow>=14"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+kaggle = ["kaggle>=1.6"]
+
+[tool.setuptools]
+packages = ["harvest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
