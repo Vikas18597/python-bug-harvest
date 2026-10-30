@@ -32,7 +32,9 @@ def parse_pytest_log(text: str) -> dict[str, str]:
                 break
             full = rest.split(" - ", 1)[0].strip()
             result[full] = status
-            result.setdefault(rest.split()[0], status)
+            alias = rest.split()[0]
+            if result.get(alias, status) in PASSING:
+                result[alias] = status
             break
     return result
 

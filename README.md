@@ -72,15 +72,20 @@ dataset/
 `harvest.jsonl` fields: `instance_id`, `repo`, `base_commit`, `environment_setup_commit`, `created_at`,
 `version`, `problem_statement`, `hints_text`, `patch` (gold), `test_patch`, `FAIL_TO_PASS`, `PASS_TO_PASS`
 (lists), `source`, `source_dataset`, `source_revision`, `source_licence`, `repo_license`, `synthetic`, plus the
-reproduction recipe that passed: `python_version` (exact interpreter used), `install_tier`, `install_commands`,
-`install_env`, `test_cmd`, `snapshot`, `snapshot_sha256`.
+reproduction recipe that passed: `python_version` (exact interpreter used), `install_tier`, `install_commands`
+(only the commands that succeeded, in order; a dependency step that failed as a whole contributes the individual
+pieces whose retry succeeded), `install_omitted` (privileged steps skipped for lack of root/sudo and soft steps or
+pieces that failed, as `{"cmd", "status": "skipped" | "failed"}`; not part of the recipe), `frozen_requirements`
+(the filtered pinned freeze when an install command reads `$HARVEST_FROZEN` – write it to a file and point
+`HARVEST_FROZEN` at it – else `null`), `install_env`, `test_cmd`, `snapshot`, `snapshot_sha256`.
 
 Snapshots are `git archive` tarballs (no `.git` directory, no submodule contents), with every path prefixed by
 `<instance_id>/`.
 
 Rejection reasons: `clone_failed`, `python_unavailable`, `env_install_failed`, `test_patch_apply_failed`,
 `gold_patch_apply_failed`, `tests_timeout`, `no_tests_collected`, `f2p_passes_without_fix`,
-`f2p_fails_with_fix`, `p2p_fails_with_fix`, `snapshot_failed`, `harness_error`. The reason is the one from the
+`f2p_fails_with_fix`, `p2p_fails_with_fix`, `snapshot_failed`, `harness_error`, plus `invalid_result` (set by
+aggregate for a `result.json` whose instance id or snapshot name does not match its directory). The reason is the one from the
 last tier tried; `rejections.jsonl` keeps every attempt and the per-candidate `harvest.log` has full command output.
 
 ## Running on GitHub Actions
@@ -129,7 +134,7 @@ python -m harvest select --source swe-rebench --split filtered --limit 20 --crea
 i.e. 20 different projects, bugs created 2023 or later, preferring rows whose recorded Python is closest to 3.13
 and whose install recipe is simplest.
 
-Trial result (Actions, `ubuntu-latest`, one candidate per job): **20 / 20 verified**. Python used was 3.13 for 16 bugs
+Trial result (Actions, `ubuntu-24.04`, one candidate per job): **20 / 20 verified**. Python used was 3.13 for 16 bugs
 and 3.12 for 4. Wall time per bug: mean 38 s, median 24 s, max 113 s. Snapshots average 4.1 MB (82 MB in total).
 The run used 22 jobs: about 17 runner-minutes, or 29 minutes with per-job rounding.
 

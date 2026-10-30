@@ -27,6 +27,19 @@ def test_parse_rA_summary():
     assert not any(k.startswith("[") for k in s)
 
 
+def test_alias_collision_keeps_failing_status():
+    log = (
+        "PASSED t.py::f[%Y %m]\n"
+        "XFAIL t.py::f[%Y %b] - reason\n"
+        "FAILED t.py::f[%Y %d] - AssertionError\n"
+        "PASSED t.py::f[%Y %H]\n"
+    )
+    s = testlog.parse_pytest_log(log)
+    assert s["t.py::f[%Y"] == "FAILED"
+    assert s["t.py::f[%Y %m]"] == "PASSED" and s["t.py::f[%Y %d]"] == "FAILED"
+    assert testlog.judge(["t.py::f[%Y"], [], {}, s)["reason"] == "f2p_fails_with_fix"
+
+
 def test_parse_verbose_lines():
     log = "tests/t.py::test_x PASSED                [ 50%]\ntests/t.py::TestC::test_y FAILED\n"
     s = testlog.parse_pytest_log(log)

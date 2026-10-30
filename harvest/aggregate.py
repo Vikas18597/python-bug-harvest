@@ -41,8 +41,12 @@ def aggregate(results_dir: Path, out_dir: Path, *, candidates_total: int | None 
     snaps = out_dir / "snapshots"
     snaps.mkdir(exist_ok=True)
     results = []
-    for path in sorted(results_dir.rglob("result.json")):
+    for path in sorted(results_dir.glob("*/result.json")):
         result = json.loads(path.read_text(encoding="utf-8"))
+        iid = path.parent.name
+        if result.get("instance_id") != iid or (
+                result.get("verified") and (result.get("snapshot") or {}).get("file") != f"{iid}.tar.gz"):
+            result.update(instance_id=iid, verified=False, reason="invalid_result")
         result["_dir"] = path.parent
         results.append(result)
 
@@ -57,7 +61,7 @@ def aggregate(results_dir: Path, out_dir: Path, *, candidates_total: int | None 
                 verified.append(r)
             else:
                 rej.write(json.dumps({
-                    "instance_id": r["instance_id"], "repo": r["repo"], "reason": r["reason"],
+                    "instance_id": r["instance_id"], "repo": r.get("repo"), "reason": r["reason"],
                     "attempts": [{k: a.get(k) for k in ("tier", "python", "reason", "verdict", "install_steps")}
                                  for a in r.get("attempts", [])],
                     "error": r.get("error"),

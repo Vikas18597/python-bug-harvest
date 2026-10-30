@@ -136,6 +136,22 @@ def _retry_pieces(step: recipes.Step, repo: Path, env: dict) -> list[str]:
     return []
 
 
+def install_recipe(steps: list[dict]) -> tuple[list[str], list[dict]]:
+    """Split recorded install steps into the commands that succeeded, in order, and the ones that did not.
+
+    A step that failed as a whole but was retried piece by piece contributes its pieces instead.
+    """
+    applied: list[str] = []
+    omitted: list[dict] = []
+    for step in steps:
+        for item in step["pieces"] if step["rc"] != 0 and step.get("pieces") else [step]:
+            if item["rc"] == 0:
+                applied.append(item["cmd"])
+            else:
+                omitted.append({"cmd": item["cmd"], "status": "skipped" if item["rc"] is None else "failed"})
+    return applied, omitted
+
+
 def run_tier(cand: dict, tier: recipes.Tier, repo: Path, work: Path, base_env: dict, log: Log, timeouts: dict) -> dict:
     attempt: dict = {"tier": tier.name, "python": tier.python, "reason": None, "env": tier.env}
     venv = work / f"venv-{tier.name}"
@@ -178,14 +194,14 @@ def run_tier(cand: dict, tier: recipes.Tier, repo: Path, work: Path, base_env: d
         if step.env:
             entry["env"] = step.env
         if rc != 0:
-            retried = _retry_pieces(step, repo, step_env)
-            if retried:
-                log.write(f"[harvest] step failed as a whole; retrying {len(retried)} piece(s) one by one")
-                results = []
-                for piece in retried:
+            pieces = _retry_pieces(step, repo, step_env)
+            if pieces:
+                log.write(f"[harvest] step failed as a whole; retrying {len(pieces)} piece(s) one by one")
+                entry["pieces"] = []
+                for piece in pieces:
                     piece_cmd = _privileged(piece) if step.privileged else piece
-                    results.append(sh(piece_cmd, repo, step_env, log, timeouts["step"])[0] if piece_cmd else 1)
-                entry["retried"] = {"ok": sum(r == 0 for r in results), "total": len(results)}
+                    piece_rc = sh(piece_cmd, repo, step_env, log, timeouts["step"])[0] if piece_cmd else None
+                    entry["pieces"].append({"cmd": piece, "rc": piece_rc})
         steps_log.append(entry)
         if rc != 0 and not step.soft:
             attempt.update(reason="env_install_failed", install_steps=steps_log, install_seconds=round(time.monotonic() - t0, 1))
@@ -288,10 +304,14 @@ def verify(cand: dict, out_root: Path, *, target_python: str = "3.13", timeouts:
     if result["verified"]:
         attempt = result["attempts"][-1]
         row = {k: cand.get(k) for k in TASK_FIELDS}
+        commands, omitted = install_recipe(attempt.get("install_steps", []))
+        frozen = recipes.frozen_requirements(cand.get("requirements"), cand["repo"])
         row.update(
             python_version=result["python_version"],
             install_tier=result["tier"],
-            install_commands=[s["cmd"] for s in attempt.get("install_steps", [])],
+            install_commands=commands,
+            install_omitted=omitted,
+            frozen_requirements=frozen if any("$HARVEST_FROZEN" in c for c in commands) else None,
             install_env={**attempt.get("env", {}), **{k: v for s in attempt.get("install_steps", []) for k, v in s.get("env", {}).items()}},
             test_cmd=result["test_cmd"],
             snapshot=result["snapshot"]["file"],

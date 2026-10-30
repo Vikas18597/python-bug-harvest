@@ -1,4 +1,5 @@
 import json
+import shlex
 import shutil
 import subprocess
 import sys
@@ -99,6 +100,84 @@ def test_aggregate_layout_and_summary(tmp_path):
     assert summary["rejection_reasons"] == {"env_install_failed": 2}
     assert "CC-BY-4.0" in (ds / "README.md").read_text()
 
+
+def test_aggregate_rejects_untrusted_result_paths(tmp_path):
+    res = tmp_path / "results"
+    _fake_result(res, "a-1", True)
+    # a result.json planted deeper than results/<iid>/ is ignored
+    deep = res / "a-1" / "x"
+    deep.mkdir()
+    (deep / "result.json").write_text(json.dumps({"instance_id": "a-1", "verified": True}))
+    # a snapshot name that escapes the snapshots dir is refused, nothing is copied out of place
+    _fake_result(res, "evil-1", True)
+    (res / "evil-1" / "payload.py").write_text("stolen = True\n")
+    bad = json.loads((res / "evil-1" / "result.json").read_text())
+    bad["snapshot"]["file"] = "../../payload.py"
+    (res / "evil-1" / "result.json").write_text(json.dumps(bad))
+    _fake_result(res, "renamed-1", True)
+    other = json.loads((res / "renamed-1" / "result.json").read_text())
+    other["instance_id"] = "../renamed-1"
+    (res / "renamed-1" / "result.json").write_text(json.dumps(other))
+
+    summary = aggregate.aggregate(res, tmp_path / "ds")
+    ds = tmp_path / "ds"
+    assert [json.loads(line)["instance_id"] for line in (ds / "harvest.jsonl").read_text().splitlines()] == ["a-1"]
+    assert sorted(p.name for p in (ds / "snapshots").iterdir()) == ["a-1.tar.gz"]
+    assert not (tmp_path / "payload.py").exists()
+    assert summary["results"] == 3 and summary["rejection_reasons"] == {"invalid_result": 2}
+    rejected = {json.loads(line)["instance_id"] for line in (ds / "rejections.jsonl").read_text().splitlines()}
+    assert rejected == {"evil-1", "renamed-1"}
+
+
+@pytest.mark.parametrize("frozen_ok", [False, True])
+def test_exported_recipe_lists_only_succeeded_commands(tmp_path, monkeypatch, frozen_ok):
+    """The pinned tier wins; the row's recipe holds only what succeeded and the pins it read."""
+    cand = {
+        "instance_id": "o__p-1", "repo": "o/p", "repo_url": "https://example.invalid/o/p.git", "base_commit": "abc",
+        "created_at": "2024-01-01", "patch": "gold\n", "test_patch": "test\n", "problem_statement": "x",
+        "FAIL_TO_PASS": ["t.py::test_bug"], "PASS_TO_PASS": ["t.py::test_ok"], "source": "toy",
+        "requirements": "good==1.0\nbad==2.0\np==0.1\n",
+        "install_config": {"python": "3.12", "packages": "pytest", "pip_packages": ["missing-pkg"],
+                           "pre_install": ["apt-get install -y libfoo libbar"], "install": "pip install -e ."},
+    }
+    frozen_cmd = 'uv pip install --no-deps -r "$HARVEST_FROZEN"'
+    failing = {"uv pip install missing-pkg"} | (set() if frozen_ok else {frozen_cmd, "uv pip install --no-deps bad==2.0"})
+    state = {"gold": False}
+
+    def fake_sh(cmd, cwd, env, log, timeout):
+        if cmd.startswith("git archive"):
+            argv = shlex.split(cmd)
+            Path(argv[argv.index("-o") + 1]).write_bytes(b"tar")
+        if "test_patch.diff" in cmd:
+            state["gold"] = False
+        if "gold_patch.diff" in cmd:
+            state["gold"] = True
+        if cmd.startswith("python -c"):
+            return 0, "3.13.1\n"
+        if cmd.startswith("pytest"):
+            fixed = state["gold"] and not env["VIRTUAL_ENV"].endswith("recipe")
+            return 0, f"PASSED t.py::test_ok\n{'PASSED' if fixed else 'FAILED'} t.py::test_bug\n"
+        return (1 if cmd in failing else 0), ""
+
+    monkeypatch.setattr(verify, "sh", fake_sh)
+    monkeypatch.setattr(verify, "_privileged", lambda cmd: None)
+    result = verify.verify(cand, tmp_path / "out", target_python="3.13")
+    assert result["verified"] and result["tier"] == "py3.13-pinned", result
+    task = json.loads((tmp_path / "out" / "o__p-1" / "task.json").read_text())
+    skipped_apt = {"cmd": "apt-get install -y libfoo libbar", "status": "skipped"}
+    failed_pkg = {"cmd": "uv pip install missing-pkg", "status": "failed"}
+    if frozen_ok:
+        assert task["install_commands"] == ["uv pip install setuptools wheel pytest", frozen_cmd, "uv pip install -e ."]
+        assert task["install_omitted"] == [skipped_apt, failed_pkg]
+        assert task["frozen_requirements"] == "good==1.0\nbad==2.0\n"
+    else:
+        assert task["install_commands"] == [
+            "uv pip install setuptools wheel pytest", "uv pip install --no-deps good==1.0", "uv pip install -e .",
+        ]
+        assert task["install_omitted"] == [
+            skipped_apt, {"cmd": "uv pip install --no-deps bad==2.0", "status": "failed"}, failed_pkg,
+        ]
+        assert task["frozen_requirements"] is None
 
 def test_kaggle_upload_is_noop_without_credentials(tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
