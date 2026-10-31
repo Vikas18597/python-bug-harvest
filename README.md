@@ -99,7 +99,11 @@ Outputs are uploaded as short-retention (7 day) artifacts: `harvest-dataset` (th
 ### Kaggle upload
 
 The aggregate job uploads `dataset/` to a **private** Kaggle dataset `<KAGGLE_USERNAME>/<slug>` (created on first
-run, new version afterwards) when the repository secrets `KAGGLE_USERNAME` and `KAGGLE_KEY` are set. Without them
+run, new version afterwards) when Kaggle credentials are set as repository secrets: either `KAGGLE_API_TOKEN` (the
+new single token, needs `kaggle>=1.8.3`, see the
+[Kaggle CLI auth docs](https://github.com/Kaggle/kaggle-cli/blob/main/docs/README.md#authentication)) or the legacy
+`KAGGLE_USERNAME` + `KAGGLE_KEY` pair. With the token, also set `KAGGLE_USERNAME` (the dataset owner); if it is
+missing the step tries to read the username from `kaggle config view` and otherwise skips. Without credentials
 the step is a no-op and logs `Kaggle upload skipped: ...`. Credentials are only read from the environment and are
 never written to the repository.
 

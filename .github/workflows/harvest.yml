@@ -18,7 +18,7 @@ on:
         description: Python version tried first
         default: "3.13"
       kaggle_slug:
-        description: Kaggle dataset slug (upload is skipped unless KAGGLE_USERNAME/KAGGLE_KEY secrets exist)
+        description: Kaggle dataset slug (upload is skipped unless KAGGLE_API_TOKEN, or legacy KAGGLE_USERNAME + KAGGLE_KEY, secrets exist; owner = KAGGLE_USERNAME)
         default: python-bug-harvest
   push:
     branches: ["harvest-run/**"]
@@ -109,8 +109,10 @@ jobs:
           retention-days: 7
       - name: Upload to private Kaggle dataset (skipped without secrets)
         env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
           KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
           KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
         run: |
-          if [ -n "$KAGGLE_USERNAME" ] && [ -n "$KAGGLE_KEY" ]; then pip install -q kaggle; fi
+          # kaggle>=1.8.3 reads KAGGLE_API_TOKEN (https://github.com/Kaggle/kaggle-cli/blob/main/docs/README.md#authentication)
+          if [ -n "$KAGGLE_API_TOKEN" ] || { [ -n "$KAGGLE_USERNAME" ] && [ -n "$KAGGLE_KEY" ]; }; then pip install -q "kaggle>=1.8.3"; fi
           python -m harvest kaggle-upload --dir out/dataset --slug "$KAGGLE_SLUG" --message "run ${{ github.run_id }}"
