@@ -12,7 +12,7 @@ dependencies = ["pyarrow>=14"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-kaggle = ["kaggle>=1.6"]
+kaggle = ["kaggle>=1.8.3"]
 
 [tool.setuptools]
 packages = ["harvest"]
