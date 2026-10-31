@@ -182,6 +182,7 @@ def test_exported_recipe_lists_only_succeeded_commands(tmp_path, monkeypatch, fr
 def test_kaggle_upload_is_noop_without_credentials(tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
     monkeypatch.setenv("KAGGLE_KEY", "")
+    monkeypatch.delenv("KAGGLE_API_TOKEN", raising=False)
 
     def runner(*a, **k):
         raise AssertionError("kaggle CLI must not be invoked without credentials")
@@ -194,6 +195,7 @@ def test_kaggle_upload_is_noop_without_credentials(tmp_path, monkeypatch, capsys
 def test_kaggle_upload_creates_private_dataset(tmp_path, monkeypatch):
     monkeypatch.setenv("KAGGLE_USERNAME", "someone")
     monkeypatch.setenv("KAGGLE_KEY", "k")
+    monkeypatch.delenv("KAGGLE_API_TOKEN", raising=False)
     calls = []
 
     def runner(cmd, **kw):
