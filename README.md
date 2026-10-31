@@ -142,6 +142,22 @@ Trial result (Actions, `ubuntu-24.04`, one candidate per job): **20 / 20 verifie
 and 3.12 for 4. Wall time per bug: mean 38 s, median 24 s, max 113 s. Snapshots average 4.1 MB (82 MB in total).
 The run used 22 jobs: about 17 runner-minutes, or 29 minutes with per-job rounding.
 
+## Bulk candidate list
+
+[`candidates/bulk-500.json`](candidates/bulk-500.json) uses the same filters with a larger limit:
+
+```sh
+python -m harvest select --source swe-rebench --split filtered --limit 500 --created-from 2023 \
+  --exclude fastapi,rich,requests,httpx --out candidates/bulk-500.json
+```
+
+That gives 500 bugs from 500 different projects; its first 20 entries are the trial list. The excluded projects
+are reserved for a held-out evaluation set. Run it with `per_job=2` (250 matrix jobs, under the 256 cap):
+
+```sh
+gh workflow run harvest.yml --ref main -f candidates=candidates/bulk-500.json -f per_job=2
+```
+
 ## Licence
 
 MIT – see [LICENSE](LICENSE). This licence covers the harvester code only, not the harvested data.
