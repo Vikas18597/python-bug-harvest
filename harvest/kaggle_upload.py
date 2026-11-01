@@ -73,6 +73,8 @@ def upload(data_dir: Path, slug: str, title: str, message: str, runner=subproces
         # `create` without --public makes the dataset private.
         cmd = ["kaggle", "datasets", "create", "-p", str(data_dir), "--dir-mode", "zip"]
         action = "created"
-    print(f"Kaggle upload: {action} private dataset {dataset_id}", flush=True)
+    print(f"Kaggle upload: uploading private dataset {dataset_id} ...", flush=True)
     runner(cmd, check=True)
+    # Claim success only now: check=True raises (and fails the job) if the CLI call failed.
+    print(f"Kaggle upload: {action} private dataset {dataset_id}", flush=True)
     return action
