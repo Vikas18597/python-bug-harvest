@@ -116,5 +116,12 @@ jobs:
           # kaggle>=1.8.3 reads KAGGLE_API_TOKEN (https://github.com/Kaggle/kaggle-cli/blob/main/docs/README.md#authentication).
           # Pinned for reproducible runs. `six` is added by hand: kaggle>=1.8.4 no longer declares it on PyPI, but
           # kaggle/models/upload_file.py still does `import six`, so the CLI crashes on start without it.
-          if [ -n "$KAGGLE_API_TOKEN" ] || { [ -n "$KAGGLE_USERNAME" ] && [ -n "$KAGGLE_KEY" ]; }; then pip install -q "kaggle==2.2.5" six; fi
+          has_token=false
+          if [ -n "$KAGGLE_API_TOKEN" ]; then has_token=true; fi
+          has_legacy_pair=false
+          if [ -n "$KAGGLE_USERNAME" ] && [ -n "$KAGGLE_KEY" ]; then has_legacy_pair=true; fi
+          # Without credentials, skip the install; the upload command below then logs "skipped" and exits 0.
+          if [ "$has_token" = true ] || [ "$has_legacy_pair" = true ]; then
+            pip install -q "kaggle==2.2.5" six
+          fi
           python -m harvest kaggle-upload --dir out/dataset --slug "$KAGGLE_SLUG" --message "run ${{ github.run_id }}"

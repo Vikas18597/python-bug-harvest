@@ -95,19 +95,22 @@ def test_token_only_cli_missing_skips(tmp_path, monkeypatch):
     assert _upload(tmp_path, runner) == "skipped"
 
 
-def test_success_logged_only_after_cli_call_succeeds(tmp_path, monkeypatch, capsys):
+def test_success_is_logged_after_cli_call(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("KAGGLE_USERNAME", "alice")
     monkeypatch.setenv("KAGGLE_KEY", "fake-key")
     assert _upload(tmp_path, FakeRunner()) == "created"
     assert "created private dataset alice/slug" in capsys.readouterr().out
 
-    def failing_runner(cmd, check=False, **kwargs):
+
+def test_failed_cli_call_raises_and_does_not_log_success(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("KAGGLE_USERNAME", "alice")
+    monkeypatch.setenv("KAGGLE_KEY", "fake-key")
+
+    def runner_where_create_fails(cmd, check=False, **kwargs):
         if cmd[:3] == ["kaggle", "datasets", "status"]:
-            return subprocess.CompletedProcess(cmd, 1, "", "")
-        if check:
-            raise subprocess.CalledProcessError(1, cmd)
-        return subprocess.CompletedProcess(cmd, 1, "", "")
+            return subprocess.CompletedProcess(cmd, 1, "", "")  # dataset does not exist yet
+        raise subprocess.CalledProcessError(1, cmd)  # what check=True does on a non-zero exit
 
     with pytest.raises(subprocess.CalledProcessError):
-        _upload(tmp_path, failing_runner)
+        _upload(tmp_path, runner_where_create_fails)
     assert "created private dataset" not in capsys.readouterr().out
