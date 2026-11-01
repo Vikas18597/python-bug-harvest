@@ -93,3 +93,21 @@ def test_token_only_cli_missing_skips(tmp_path, monkeypatch):
         raise FileNotFoundError("kaggle")
 
     assert _upload(tmp_path, runner) == "skipped"
+
+
+def test_success_logged_only_after_cli_call_succeeds(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("KAGGLE_USERNAME", "alice")
+    monkeypatch.setenv("KAGGLE_KEY", "fake-key")
+    assert _upload(tmp_path, FakeRunner()) == "created"
+    assert "created private dataset alice/slug" in capsys.readouterr().out
+
+    def failing_runner(cmd, check=False, **kwargs):
+        if cmd[:3] == ["kaggle", "datasets", "status"]:
+            return subprocess.CompletedProcess(cmd, 1, "", "")
+        if check:
+            raise subprocess.CalledProcessError(1, cmd)
+        return subprocess.CompletedProcess(cmd, 1, "", "")
+
+    with pytest.raises(subprocess.CalledProcessError):
+        _upload(tmp_path, failing_runner)
+    assert "created private dataset" not in capsys.readouterr().out

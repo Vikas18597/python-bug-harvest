@@ -107,6 +107,11 @@ missing the step tries to read the username from `kaggle config view` and otherw
 the step is a no-op and logs `Kaggle upload skipped: ...`. Credentials are only read from the environment and are
 never written to the repository.
 
+With credentials, the step installs `kaggle==2.2.5` plus `six` (also the `kaggle` extra in `pyproject.toml`).
+`six` is listed explicitly because kaggle 1.8.4+ no longer declares it although the CLI still imports it. The step
+logs `Kaggle upload: created|versioned private dataset ...` only after the `kaggle datasets` call succeeds; a failed
+call fails the job.
+
 ## Running locally
 
 Verification needs Linux (or WSL/macOS) with `git`, `bash` and [`uv`](https://docs.astral.sh/uv/); apt
