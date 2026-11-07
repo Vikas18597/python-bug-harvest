@@ -182,6 +182,41 @@ project gets its first bug before any project gets its second, so new projects s
 candidate file records `per_project` and `exclude_ids_from` in its criteria when they are used; runs without these
 options write the same criteria as before.
 
+## Batch 2 candidate lists
+
+Batch 2 keeps one bug per project and skips every project in the earlier lists. SWE-rebench `filtered` has only
+274 such projects from 2023 on, so the window starts in 2022:
+
+```sh
+python -m harvest select --source swe-rebench --split filtered --limit 500 --created-from 2022 \
+  --exclude fastapi,rich,requests,httpx --exclude-ids candidates/trial-20.json,candidates/bulk-500.json \
+  --out candidates/batch-2.json        # 469 bugs from 469 projects: every one left
+python -m harvest select --source swe-rebench --split filtered --limit 20 --created-from 2022 \
+  --exclude fastapi,rich,requests,httpx --exclude-ids candidates/trial-20.json,candidates/bulk-500.json \
+  --out candidates/batch-2-trial-20.json   # the first 20 of batch-2.json
+python -m harvest select --source swe-gym --split train --limit 500 --created-from 2022 \
+  --exclude fastapi,rich,requests,httpx \
+  --exclude-ids candidates/trial-20.json,candidates/bulk-500.json,candidates/batch-2.json \
+  --out candidates/batch-2-swe-gym.json    # 6 bugs
+python -m harvest select --source swe-bench --split test --limit 500 --created-from 2022 \
+  --exclude fastapi,rich,requests,httpx \
+  --exclude-ids candidates/trial-20.json,candidates/bulk-500.json,candidates/batch-2.json,candidates/batch-2-swe-gym.json \
+  --out candidates/batch-2-swe-bench.json  # 6 bugs
+```
+
+SWE-Gym and SWE-bench each come from about a dozen large projects, so one bug per project adds only 12; most of
+`batch-2.json` was recorded on Python 3.9, because batch 1 took the newer ones. Run the trial first, then the full
+lists (`per_job=2` gives 235 jobs for `batch-2.json`). To keep batch 1 intact, upload each batch to its own
+dataset: `kaggle-upload` versions an existing slug, so reusing `python-bug-harvest` would replace batch 1's files
+in the latest version.
+
+```sh
+gh workflow run harvest.yml --ref main -f candidates=candidates/batch-2-trial-20.json -f per_job=1 \
+  -f kaggle_slug=python-bug-harvest-b2-trial
+gh workflow run harvest.yml --ref main -f candidates=candidates/batch-2.json -f per_job=2 \
+  -f kaggle_slug=python-bug-harvest-b2
+```
+
 ## Licence
 
 MIT – see [LICENSE](LICENSE). This licence covers the harvester code only, not the harvested data.
