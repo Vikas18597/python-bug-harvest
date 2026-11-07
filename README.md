@@ -33,7 +33,8 @@ revision is refused.
 ## How it works
 
 1. **Select** (`python -m harvest select`) – deterministically picks candidates from a source split and writes a
-   small JSON candidate list (committed under [`candidates/`](candidates/)).
+   small JSON candidate list (committed under [`candidates/`](candidates/)). `--exclude-ids` skips bugs listed in
+   earlier candidate files (see [Later batches](#later-batches)).
 2. **Plan** (`python -m harvest plan`) – loads the pinned dataset, materialises the candidate rows and a
    GitHub Actions job matrix (`--per-job N` candidates per job; Actions allows at most 256 jobs per matrix).
 3. **Verify** (`python -m harvest verify`) – for each candidate:
@@ -162,6 +163,24 @@ are reserved for a held-out evaluation set. Run it with `per_job=2` (250 matrix 
 ```sh
 gh workflow run harvest.yml --ref main -f candidates=candidates/bulk-500.json -f per_job=2
 ```
+
+## Later batches
+
+With one bug per project, a larger `--limit` returns the earlier list again before adding anything new. To pick a
+new batch without repeats, pass the earlier candidate files to `--exclude-ids` (comma-separated):
+
+```sh
+python -m harvest select --source swe-rebench --split filtered --limit 500 --created-from 2023 \
+  --exclude fastapi,rich,requests,httpx --exclude-ids candidates/bulk-500.json --out candidates/batch-2.json
+```
+
+Bugs in those files are skipped, whatever source or pinned revision they came from, and they count toward
+`--per-project N` (default 1): the most bugs any one project may have across the earlier files and the new list.
+A bug listed in two files counts once. So the default picks only projects no earlier file used, including
+projects whose earlier bug was rejected; `--per-project 2` also allows one more bug from each project. Every
+project gets its first bug before any project gets its second, so new projects still come first. The new
+candidate file records `per_project` and `exclude_ids_from` in its criteria when they are used; runs without these
+options write the same criteria as before.
 
 ## Licence
 

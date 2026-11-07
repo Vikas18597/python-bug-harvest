@@ -16,14 +16,28 @@ def _load_plan(path: Path) -> list[dict]:
 
 
 def cmd_select(a: argparse.Namespace) -> int:
+    if a.per_project < 1:
+        raise SystemExit(f"--per-project must be at least 1, got {a.per_project}")
+    previous_files = [Path(p.strip()).as_posix() for p in a.exclude_ids.split(",") if p.strip()]
+    try:
+        previous = select.read_previous_candidates(Path(p) for p in previous_files)
+    except (OSError, ValueError) as err:
+        raise SystemExit(f"--exclude-ids: {err}") from err
     rows = sources.load(a.source, a.split)
     exclude = {p.strip() for p in a.exclude.split(",") if p.strip()}
-    chosen = select.select(rows, limit=a.limit, created_from=a.created_from, exclude_projects=exclude)
+    chosen = select.select(rows, limit=a.limit, created_from=a.created_from, exclude_projects=exclude,
+                           per_project=a.per_project, previous=previous)
     criteria = {"limit": a.limit, "created_from": a.created_from, "exclude_projects": sorted(exclude),
-                "one_per_project": True,
+                "one_per_project": a.per_project == 1,
                 "order": "dataset python version desc, simpler recipe, created_at desc, instance_id"}
+    # only recorded when used, so default runs reproduce earlier candidate files byte for byte
+    if a.per_project != 1:
+        criteria["per_project"] = a.per_project
+    if previous_files:
+        criteria["exclude_ids_from"] = previous_files
     select.write_candidate_file(Path(a.out), source=a.source, split=a.split, criteria=criteria, chosen=chosen)
-    print(f"wrote {len(chosen)} candidates from {len({c['repo'] for c in chosen})} projects to {a.out}")
+    skipped = f", skipping {len(dict(previous))} bugs from {len(previous_files)} earlier file(s)" if previous_files else ""
+    print(f"wrote {len(chosen)} candidates from {len({c['repo'] for c in chosen})} projects to {a.out}{skipped}")
     return 0
 
 
@@ -117,6 +131,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=20)
     p.add_argument("--created-from", default="2023")
     p.add_argument("--exclude", default="", help="comma-separated project names to skip")
+    p.add_argument("--exclude-ids", default="",
+                   help="comma-separated earlier candidate files; their bugs are skipped and count toward --per-project")
+    p.add_argument("--per-project", type=int, default=1,
+                   help="most bugs per project, counting those in --exclude-ids files (default 1)")
     p.add_argument("--out", required=True)
     p.set_defaults(fn=cmd_select)
 

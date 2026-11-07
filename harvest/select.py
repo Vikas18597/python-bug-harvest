@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
 
 from . import sources
@@ -35,15 +37,27 @@ def select(
     limit: int,
     created_from: str,
     exclude_projects: set[str],
-    one_per_project: bool = True,
+    per_project: int = 1,
+    previous: Iterable[tuple[str, str]] = (),
 ) -> list[dict]:
+    """Pick up to ``limit`` candidates, at most ``per_project`` per project.
+
+    ``previous`` holds ``(instance_id, repo)`` pairs chosen by earlier selections: those bugs are skipped and
+    count toward their project's ``per_project`` cap, so a later batch adds new bugs without repeats. Every
+    project gets its first bug before any project gets its second, and so on.
+    """
+    if per_project < 1:
+        raise ValueError(f"per_project must be at least 1, got {per_project}")
     excluded = {p.lower() for p in exclude_projects}
+    previous_repos = dict(previous)
+    counts = Counter(repo.lower() for repo in previous_repos.values())
     pool = [
         r
         for r in rows
         if r["created_at"] >= created_from
         and r["repo"].split("/")[-1].lower() not in excluded
         and r["repo"].lower() not in excluded
+        and r["instance_id"] not in previous_repos
         and r["FAIL_TO_PASS"]
         and r["test_patch"].strip()
     ]
@@ -56,16 +70,33 @@ def select(
         )
     )
     chosen: list[dict] = []
-    seen: set[str] = set()
-    for r in pool:
-        project = r["repo"].lower()
-        if one_per_project and project in seen:
-            continue
-        seen.add(project)
-        chosen.append(r)
-        if len(chosen) >= limit:
-            break
+    picked: set[str] = set()
+    for cap in range(1, per_project + 1):
+        for r in pool:
+            if len(chosen) >= limit:
+                return chosen
+            project = r["repo"].lower()
+            if r["instance_id"] in picked or counts[project] >= cap:
+                continue
+            counts[project] += 1
+            picked.add(r["instance_id"])
+            chosen.append(r)
     return chosen
+
+
+def read_previous_candidates(paths: Iterable[Path]) -> list[tuple[str, str]]:
+    """``(instance_id, repo)`` pairs from earlier candidate files, for ``select(previous=...)``.
+
+    The pinned revision is not checked: an older list still names bugs that must not be picked again.
+    """
+    pairs: list[tuple[str, str]] = []
+    for path in paths:
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+        ids, projects = (doc.get("instance_ids"), doc.get("projects")) if isinstance(doc, dict) else (None, None)
+        if not isinstance(ids, list) or not isinstance(projects, list) or len(ids) != len(projects):
+            raise ValueError(f"{path} is not a candidate file: it needs instance_ids and projects lists of equal length")
+        pairs.extend(zip(ids, projects))
+    return pairs
 
 
 def write_candidate_file(path: Path, *, source: str, split: str, criteria: dict, chosen: list[dict]) -> None:
