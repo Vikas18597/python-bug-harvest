@@ -93,8 +93,10 @@ def read_previous_candidates(paths: Iterable[Path]) -> list[tuple[str, str]]:
     for path in paths:
         doc = json.loads(Path(path).read_text(encoding="utf-8"))
         ids, projects = (doc.get("instance_ids"), doc.get("projects")) if isinstance(doc, dict) else (None, None)
-        if not isinstance(ids, list) or not isinstance(projects, list) or len(ids) != len(projects):
-            raise ValueError(f"{path} is not a candidate file: it needs instance_ids and projects lists of equal length")
+        if (not isinstance(ids, list) or not isinstance(projects, list) or len(ids) != len(projects)
+                or not all(isinstance(v, str) and v for v in (*ids, *projects))):
+            raise ValueError(f"{path} is not a candidate file: it needs instance_ids and projects lists "
+                             "of non-empty strings, of equal length")
         pairs.extend(zip(ids, projects))
     return pairs
 

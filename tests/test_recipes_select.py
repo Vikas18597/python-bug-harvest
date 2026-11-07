@@ -80,6 +80,12 @@ def test_read_previous_candidates(tmp_path):
     bad.write_text('["a__x-1"]')
     with pytest.raises(ValueError, match="not a candidate file"):
         select.read_previous_candidates([bad])
+    # equal-length lists must still hold non-empty strings, or selection would crash later
+    for doc in ('{"instance_ids": ["a"], "projects": [null]}', '{"instance_ids": [["a"]], "projects": ["a/x"]}',
+                '{"instance_ids": [""], "projects": ["a/x"]}'):
+        bad.write_text(doc)
+        with pytest.raises(ValueError, match="non-empty strings"):
+            select.read_previous_candidates([bad])
 
 
 def test_cli_select_with_earlier_candidate_files(tmp_path, monkeypatch, capsys):
