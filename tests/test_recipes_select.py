@@ -1,6 +1,9 @@
+import json
 from pathlib import Path
 
-from harvest import recipes, select, sources
+import pytest
+
+from harvest import cli, recipes, select, sources
 
 
 def _cand(**kw):
@@ -26,6 +29,90 @@ def test_select_filters_and_diversifies():
     # one per project, newest first within a project, closest Python version to the target first
     assert [c["instance_id"] for c in chosen] == ["a__x-2", "e__z-1", "d__y-1"]
     assert len(select.select(rows, limit=1, created_from="2023", exclude_projects=set())) == 1
+
+
+def _later_batch_rows():
+    # same Python and recipe, so the order is created_at desc: a__x-2, b__y-1, b__y-2, a__x-3, c__z-1
+    return [
+        _cand(instance_id="a__x-1", repo="a/x", created_at="2025-01-01"),
+        _cand(instance_id="a__x-2", repo="a/x", created_at="2024-06-01"),
+        _cand(instance_id="a__x-3", repo="a/x", created_at="2024-01-01"),
+        _cand(instance_id="b__y-1", repo="b/y", created_at="2024-03-01"),
+        _cand(instance_id="b__y-2", repo="B/Y", created_at="2024-02-01"),
+        _cand(instance_id="c__z-1", repo="c/z", created_at="2023-06-01"),
+    ]
+
+
+def test_select_skips_previous_bugs_and_caps_projects_across_batches():
+    # a__x-1 appears twice (e.g. a trial list and the bulk list that contains it) but counts once
+    previous = [("a__x-1", "a/x"), ("a__x-1", "a/x"), ("gone-1", "d/w")]
+
+    def ids(**kw):
+        chosen = select.select(_later_batch_rows(), created_from="2023", exclude_projects=set(), previous=previous,
+                               **{"limit": 10, **kw})
+        return [c["instance_id"] for c in chosen]
+
+    # default: only projects no earlier batch used (project names compare case-insensitively)
+    assert ids() == ["b__y-1", "c__z-1"]
+    # every project gets its first bug before any gets its second; a/x already has one
+    assert ids(per_project=2) == ["b__y-1", "c__z-1", "a__x-2", "b__y-2"]
+    assert ids(per_project=3) == ["b__y-1", "c__z-1", "a__x-2", "b__y-2", "a__x-3"]
+    assert ids(per_project=2, limit=3) == ["b__y-1", "c__z-1", "a__x-2"]
+    # without earlier batches the cap applies to the new list alone
+    no_previous = select.select(_later_batch_rows(), limit=10, created_from="2023", exclude_projects=set(), per_project=2)
+    assert [c["instance_id"] for c in no_previous] == ["a__x-1", "b__y-1", "c__z-1", "a__x-2", "b__y-2"]
+    with pytest.raises(ValueError, match="per_project"):
+        select.select(_later_batch_rows(), limit=10, created_from="2023", exclude_projects=set(), per_project=0)
+
+
+def test_read_previous_candidates(tmp_path):
+    first, second, bad = tmp_path / "first.json", tmp_path / "second.json", tmp_path / "bad.json"
+    select.write_candidate_file(first, source="swe-rebench", split="filtered", criteria={},
+                                chosen=[_cand(instance_id="a__x-1", repo="a/x")])
+    select.write_candidate_file(second, source="swe-gym", split="train", criteria={},
+                                chosen=[_cand(instance_id="b__y-1", repo="b/y"), _cand(instance_id="c__z-1", repo="c/z")])
+    # an older pinned revision still names bugs that must not be picked again
+    second.write_text(second.read_text().replace(sources.SOURCES["swe-gym"].revision, "deadbeef"))
+    assert select.read_previous_candidates([first, second]) == [("a__x-1", "a/x"), ("b__y-1", "b/y"), ("c__z-1", "c/z")]
+    bad.write_text('{"instance_ids": ["a"], "projects": []}')
+    with pytest.raises(ValueError, match="not a candidate file"):
+        select.read_previous_candidates([bad])
+    bad.write_text('["a__x-1"]')
+    with pytest.raises(ValueError, match="not a candidate file"):
+        select.read_previous_candidates([bad])
+    # equal-length lists must still hold non-empty strings, or selection would crash later
+    for doc in ('{"instance_ids": ["a"], "projects": [null]}', '{"instance_ids": [["a"]], "projects": ["a/x"]}',
+                '{"instance_ids": [""], "projects": ["a/x"]}'):
+        bad.write_text(doc)
+        with pytest.raises(ValueError, match="non-empty strings"):
+            select.read_previous_candidates([bad])
+
+
+def test_cli_select_with_earlier_candidate_files(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(sources, "load", lambda source, split: _later_batch_rows())
+    earlier = tmp_path / "batch-1.json"
+    select.write_candidate_file(earlier, source="swe-rebench", split="filtered", criteria={},
+                                chosen=[_cand(instance_id="a__x-1", repo="a/x")])
+    base = ["select", "--limit", "10"]
+
+    default_out = tmp_path / "default.json"
+    assert cli.main([*base, "--out", str(default_out)]) == 0
+    criteria = json.loads(default_out.read_text())["criteria"]
+    # default runs keep the original criteria keys, so committed lists still regenerate byte for byte
+    assert criteria["one_per_project"] is True and "per_project" not in criteria and "exclude_ids_from" not in criteria
+
+    out = tmp_path / "batch-2.json"
+    assert cli.main([*base, "--exclude-ids", str(earlier), "--per-project", "2", "--out", str(out)]) == 0
+    doc = json.loads(out.read_text())
+    assert doc["instance_ids"] == ["b__y-1", "c__z-1", "a__x-2", "b__y-2"]
+    assert doc["criteria"]["per_project"] == 2 and doc["criteria"]["one_per_project"] is False
+    assert doc["criteria"]["exclude_ids_from"] == [earlier.as_posix()]
+    assert "skipping 1 bugs from 1 earlier file(s)" in capsys.readouterr().out
+
+    with pytest.raises(SystemExit, match="--per-project must be at least 1"):
+        cli.main([*base, "--per-project", "0", "--out", str(out)])
+    with pytest.raises(SystemExit, match="--exclude-ids"):
+        cli.main([*base, "--exclude-ids", str(tmp_path / "missing.json"), "--out", str(out)])
 
 
 def test_candidate_file_rejects_revision_drift(tmp_path):
