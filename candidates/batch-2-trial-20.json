@@ -1,0 +1,66 @@
+{
+  "source": "swe-rebench",
+  "dataset": "nebius/SWE-rebench",
+  "revision": "89cdfbab4ab1bd8f5a658bb212d1b63624f4f881",
+  "split": "filtered",
+  "criteria": {
+    "limit": 20,
+    "created_from": "2022",
+    "exclude_projects": [
+      "fastapi",
+      "httpx",
+      "requests",
+      "rich"
+    ],
+    "one_per_project": true,
+    "order": "dataset python version desc, simpler recipe, created_at desc, instance_id",
+    "exclude_ids_from": [
+      "candidates/trial-20.json",
+      "candidates/bulk-500.json"
+    ]
+  },
+  "instance_ids": [
+    "kpetremann__mqtt-exporter-37",
+    "manubot__manubot-345",
+    "hynek__doc2dash-200",
+    "thelastpickle__cassandra-medusa-701",
+    "dask__distributed-8447",
+    "cloudevents__sdk-python-232",
+    "common-workflow-language__cwltool-1964",
+    "ansible__ansible-runner-1334",
+    "h2non__pook-111",
+    "pyg-team__pytorch_geometric-8670",
+    "gmr__pamqp-52",
+    "aio-libs__aiocache-795",
+    "smarie__mkdocs-gallery-92",
+    "UC-Davis-molecular-computing__scadnano-python-package-288",
+    "arviz-devs__xarray-einstats-56",
+    "flyingcircusio__batou-418",
+    "docker__docker-py-3200",
+    "pypa__hatch-1148",
+    "zulip__zulip-terminal-1449",
+    "googleapis__python-firestore-821"
+  ],
+  "projects": [
+    "kpetremann/mqtt-exporter",
+    "manubot/manubot",
+    "hynek/doc2dash",
+    "thelastpickle/cassandra-medusa",
+    "dask/distributed",
+    "cloudevents/sdk-python",
+    "common-workflow-language/cwltool",
+    "ansible/ansible-runner",
+    "h2non/pook",
+    "pyg-team/pytorch_geometric",
+    "gmr/pamqp",
+    "aio-libs/aiocache",
+    "smarie/mkdocs-gallery",
+    "UC-Davis-molecular-computing/scadnano-python-package",
+    "arviz-devs/xarray-einstats",
+    "flyingcircusio/batou",
+    "docker/docker-py",
+    "pypa/hatch",
+    "zulip/zulip-terminal",
+    "googleapis/python-firestore"
+  ]
+}

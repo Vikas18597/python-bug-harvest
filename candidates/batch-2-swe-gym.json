@@ -1,0 +1,39 @@
+{
+  "source": "swe-gym",
+  "dataset": "SWE-Gym/SWE-Gym",
+  "revision": "bb94ed9e39bbeb96a7fcbfb533b80f25a7fd59cb",
+  "split": "train",
+  "criteria": {
+    "limit": 500,
+    "created_from": "2022",
+    "exclude_projects": [
+      "fastapi",
+      "httpx",
+      "requests",
+      "rich"
+    ],
+    "one_per_project": true,
+    "order": "dataset python version desc, simpler recipe, created_at desc, instance_id",
+    "exclude_ids_from": [
+      "candidates/trial-20.json",
+      "candidates/bulk-500.json",
+      "candidates/batch-2.json"
+    ]
+  },
+  "instance_ids": [
+    "python__mypy-17293",
+    "pydantic__pydantic-9450",
+    "Project-MONAI__MONAI-7754",
+    "getmoto__moto-7647",
+    "bokeh__bokeh-13800",
+    "facebookresearch__hydra-2543"
+  ],
+  "projects": [
+    "python/mypy",
+    "pydantic/pydantic",
+    "Project-MONAI/MONAI",
+    "getmoto/moto",
+    "bokeh/bokeh",
+    "facebookresearch/hydra"
+  ]
+}

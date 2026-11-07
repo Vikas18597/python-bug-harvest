@@ -1,0 +1,40 @@
+{
+  "source": "swe-bench",
+  "dataset": "princeton-nlp/SWE-bench",
+  "revision": "e48e2bd1e9fecd5bbd641e9414ac59da9f2e69f6",
+  "split": "test",
+  "criteria": {
+    "limit": 500,
+    "created_from": "2022",
+    "exclude_projects": [
+      "fastapi",
+      "httpx",
+      "requests",
+      "rich"
+    ],
+    "one_per_project": true,
+    "order": "dataset python version desc, simpler recipe, created_at desc, instance_id",
+    "exclude_ids_from": [
+      "candidates/trial-20.json",
+      "candidates/bulk-500.json",
+      "candidates/batch-2.json",
+      "candidates/batch-2-swe-gym.json"
+    ]
+  },
+  "instance_ids": [
+    "pylint-dev__pylint-8929",
+    "django__django-17087",
+    "pytest-dev__pytest-11217",
+    "mwaskom__seaborn-3407",
+    "scikit-learn__scikit-learn-26644",
+    "pallets__flask-5063"
+  ],
+  "projects": [
+    "pylint-dev/pylint",
+    "django/django",
+    "pytest-dev/pytest",
+    "mwaskom/seaborn",
+    "scikit-learn/scikit-learn",
+    "pallets/flask"
+  ]
+}
