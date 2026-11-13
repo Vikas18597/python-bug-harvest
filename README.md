@@ -217,6 +217,34 @@ gh workflow run harvest.yml --ref main -f candidates=candidates/batch-2.json -f 
   -f kaggle_slug=python-bug-harvest-b2
 ```
 
+## Batch 3 candidate lists
+
+After batch 2, SWE-rebench `filtered` has no unused project left from 2022 on, so one bug per project adds
+nothing. Batch 3 therefore takes a second bug from projects the earlier lists already used (`--per-project 2`):
+
+```sh
+python -m harvest select --source swe-rebench --split filtered --limit 500 --created-from 2022 \
+  --exclude fastapi,rich,requests,httpx \
+  --exclude-ids candidates/trial-20.json,candidates/bulk-500.json,candidates/batch-2.json,candidates/batch-2-swe-gym.json,candidates/batch-2-swe-bench.json \
+  --per-project 2 --out candidates/batch-3.json          # 461 bugs from 461 projects: every one left
+python -m harvest select --source swe-rebench --split filtered --limit 20 --created-from 2022 \
+  --exclude fastapi,rich,requests,httpx \
+  --exclude-ids candidates/trial-20.json,candidates/bulk-500.json,candidates/batch-2.json,candidates/batch-2-swe-gym.json,candidates/batch-2-swe-bench.json \
+  --per-project 2 --out candidates/batch-3-trial-20.json  # the first 20 of batch-3.json
+```
+
+Only 461 of the 981 projects in the earlier lists have another bug from 2022 on, including projects whose earlier
+bug was rejected. Every batch-3 bug is the second from its project, and no project has more than two bugs across
+all candidate lists. Most of the list (379 of 461) was recorded on Python 3.9. Run the trial first, then the full
+list (`per_job=2` gives 231 jobs), each to its own dataset:
+
+```sh
+gh workflow run harvest.yml --ref main -f candidates=candidates/batch-3-trial-20.json -f per_job=1 \
+  -f kaggle_slug=python-bug-harvest-b3-trial
+gh workflow run harvest.yml --ref main -f candidates=candidates/batch-3.json -f per_job=2 \
+  -f kaggle_slug=python-bug-harvest-b3
+```
+
 ## Licence
 
 MIT – see [LICENSE](LICENSE). This licence covers the harvester code only, not the harvested data.
