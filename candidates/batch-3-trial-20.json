@@ -1,0 +1,70 @@
+{
+  "source": "swe-rebench",
+  "dataset": "nebius/SWE-rebench",
+  "revision": "89cdfbab4ab1bd8f5a658bb212d1b63624f4f881",
+  "split": "filtered",
+  "criteria": {
+    "limit": 20,
+    "created_from": "2022",
+    "exclude_projects": [
+      "fastapi",
+      "httpx",
+      "requests",
+      "rich"
+    ],
+    "one_per_project": false,
+    "order": "dataset python version desc, simpler recipe, created_at desc, instance_id",
+    "per_project": 2,
+    "exclude_ids_from": [
+      "candidates/trial-20.json",
+      "candidates/bulk-500.json",
+      "candidates/batch-2.json",
+      "candidates/batch-2-swe-gym.json",
+      "candidates/batch-2-swe-bench.json"
+    ]
+  },
+  "instance_ids": [
+    "pyodide__pyodide-build-28",
+    "BoboTiG__ebook-reader-dict-2054",
+    "zarr-developers__zarr-python-2996",
+    "astropy__astropy-17984",
+    "sphinx-doc__sphinx-13318",
+    "ipython__ipython-14693",
+    "networkx__networkx-7804",
+    "instructlab__sdg-461",
+    "radiocosmology__alpenhorn-268",
+    "All-Hands-AI__openhands-resolver-123",
+    "spacetelescope__jwst-8760",
+    "python-wheel-build__fromager-290",
+    "hhm970__c10-games-tracker-project-161",
+    "numba__numba-9670",
+    "vyperlang__vyper-3498",
+    "scipp__plopp-437",
+    "google__flax-4681",
+    "qBraid__pyqasm-168",
+    "SpikeInterface__spikeinterface-3778",
+    "dask__dask-11801"
+  ],
+  "projects": [
+    "pyodide/pyodide-build",
+    "BoboTiG/ebook-reader-dict",
+    "zarr-developers/zarr-python",
+    "astropy/astropy",
+    "sphinx-doc/sphinx",
+    "ipython/ipython",
+    "networkx/networkx",
+    "instructlab/sdg",
+    "radiocosmology/alpenhorn",
+    "All-Hands-AI/openhands-resolver",
+    "spacetelescope/jwst",
+    "python-wheel-build/fromager",
+    "hhm970/c10-games-tracker-project",
+    "numba/numba",
+    "vyperlang/vyper",
+    "scipp/plopp",
+    "google/flax",
+    "qBraid/pyqasm",
+    "SpikeInterface/spikeinterface",
+    "dask/dask"
+  ]
+}
