@@ -64,7 +64,7 @@ revision is refused.
 ```
 dataset/
   harvest.jsonl          one SWE-bench-style row per verified bug
-  snapshots/<instance_id>.tar.gz
+  snapshots/<instance_id>.tgz
   rejections.jsonl       one row per rejected candidate: reason + every tier attempt
   summary.json, summary.md
   README.md              attribution for the published dataset
@@ -80,8 +80,9 @@ pieces that failed, as `{"cmd", "status": "skipped" | "failed"}`; not part of th
 (the filtered pinned freeze when an install command reads `$HARVEST_FROZEN` – write it to a file and point
 `HARVEST_FROZEN` at it – else `null`), `install_env`, `test_cmd`, `snapshot`, `snapshot_sha256`.
 
-Snapshots are `git archive` tarballs (no `.git` directory, no submodule contents), with every path prefixed by
-`<instance_id>/`.
+Snapshots are gzipped `git archive` tarballs (no `.git` directory, no submodule contents), with every path prefixed
+by `<instance_id>/`. They are named `<instance_id>.tgz` (see [Kaggle upload](#kaggle-upload)), and the `snapshot` field
+always holds the file name. Results from older runs, whose snapshots were named `.tar.gz`, are renamed by aggregate.
 
 Rejection reasons: `clone_failed`, `python_unavailable`, `env_install_failed`, `test_patch_apply_failed`,
 `gold_patch_apply_failed`, `tests_timeout`, `no_tests_collected`, `f2p_passes_without_fix`,
@@ -110,8 +111,15 @@ never written to the repository.
 
 With credentials, the step installs `kaggle==2.2.5` plus `six` (also the `kaggle` extra in `pyproject.toml`).
 `six` is listed explicitly because kaggle 1.8.4+ no longer declares it although the CLI still imports it. The step
-logs `Kaggle upload: created|versioned private dataset ...` only after the `kaggle datasets` call succeeds; a failed
-call fails the job.
+logs `Kaggle upload: created|versioned private dataset ...` only after the `kaggle datasets` call succeeds and
+Kaggle has processed the upload: it polls `kaggle datasets status` until the dataset, or its new version, is ready.
+A failed call, status `error`, or nothing ready within 30 minutes (`--ready-timeout`) fails the job.
+
+Kaggle unpacks uploaded archives, including archives inside them: the `snapshots.zip` that `--dir-mode zip` builds
+and every `.tar.gz` in it. Some source trees, for example one with a directory named `__main__` or a path containing
+`&`, then make processing fail without an error: the CLI reports success but the dataset never appears. Kaggle keeps
+`.tgz` files as they are, so snapshots use that name, and the upload refuses a `snapshots/` folder with `.tar.gz`
+files. A slug whose processing failed can be uploaded again.
 
 ## Running locally
 
