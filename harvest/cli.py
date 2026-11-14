@@ -94,7 +94,11 @@ def cmd_aggregate(a: argparse.Namespace) -> int:
 
 
 def cmd_kaggle(a: argparse.Namespace) -> int:
-    kaggle_upload.upload(Path(a.dir), a.slug, a.title, a.message)
+    try:
+        kaggle_upload.upload(Path(a.dir), a.slug, a.title, a.message, ready_timeout=a.ready_timeout)
+    except kaggle_upload.KaggleUploadError as err:
+        print(err, file=sys.stderr, flush=True)
+        return 1
     return 0
 
 
@@ -162,6 +166,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--slug", default="python-bug-harvest")
     p.add_argument("--title", default="python-bug-harvest")
     p.add_argument("--message", default="harvest update")
+    p.add_argument("--ready-timeout", type=float, default=kaggle_upload.DEFAULT_READY_TIMEOUT,
+                   help="seconds to wait for Kaggle to finish processing the upload (default %(default)s)")
     p.set_defaults(fn=cmd_kaggle)
 
     p = sub.add_parser("run", help="local end-to-end run (plan, verify, aggregate)")

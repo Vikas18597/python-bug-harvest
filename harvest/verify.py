@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 from . import recipes, testlog
+from .aggregate import SNAPSHOT_SUFFIX
 
 DEFAULT_TIMEOUTS = {"clone": 900, "step": 1200, "tests": 1200}
 TASK_FIELDS = (
@@ -282,7 +283,7 @@ def verify(cand: dict, out_root: Path, *, target_python: str = "3.13", timeouts:
             if not result["verified"]:
                 result["reason"] = result["attempts"][-1]["reason"] if result["attempts"] else "no_tiers"
             else:
-                snap = out / f"{iid}.tar.gz"
+                snap = out / f"{iid}{SNAPSHOT_SUFFIX}"
                 rc, _ = sh(
                     f"git archive --format=tar.gz --prefix={shlex.quote(iid)}/ -o {shlex.quote(str(snap))} {cand['base_commit']}",
                     repo, base_env, log, 600,

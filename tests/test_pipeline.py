@@ -61,6 +61,7 @@ def test_verify_end_to_end(toy_candidate, tmp_path, monkeypatch):
     out = tmp_path / "out" / "toy__calc-1"
     task = json.loads((out / "task.json").read_text())
     assert task["FAIL_TO_PASS"] == ["tests/test_calc.py::test_add"] and task["python_version"].startswith(toy_candidate["_py"])
+    assert task["snapshot"] == "toy__calc-1.tgz"
     listing = subprocess.run(["tar", "-tzf", str(out / task["snapshot"])], capture_output=True, text=True, check=True).stdout
     assert "toy__calc-1/calc.py" in listing
 
@@ -74,15 +75,15 @@ def test_verify_rejects_wrong_gold_patch(toy_candidate, tmp_path):
     assert not (tmp_path / "out" / "toy__calc-1" / "task.json").exists()
 
 
-def _fake_result(root: Path, iid: str, verified: bool, reason=None, size=1000):
+def _fake_result(root: Path, iid: str, verified: bool, reason=None, size=1000, suffix=".tgz"):
     d = root / iid
     d.mkdir(parents=True)
     res = {"instance_id": iid, "repo": "o/" + iid, "verified": verified, "reason": reason, "wall_seconds": 10.0,
            "attempts": [{"tier": "py3.13-recipe", "python": "3.13", "reason": reason}]}
     if verified:
-        res.update(python_version="3.13.1", tier="py3.13-recipe", snapshot={"file": f"{iid}.tar.gz", "bytes": size})
-        (d / f"{iid}.tar.gz").write_bytes(b"x" * size)
-        (d / "task.json").write_text(json.dumps({"instance_id": iid}))
+        res.update(python_version="3.13.1", tier="py3.13-recipe", snapshot={"file": f"{iid}{suffix}", "bytes": size})
+        (d / f"{iid}{suffix}").write_bytes(b"x" * size)
+        (d / "task.json").write_text(json.dumps({"instance_id": iid, "snapshot": f"{iid}{suffix}"}))
     (d / "result.json").write_text(json.dumps(res))
 
 
@@ -94,11 +95,52 @@ def test_aggregate_layout_and_summary(tmp_path):
     summary = aggregate.aggregate(res, tmp_path / "ds", candidates_total=4)
     ds = tmp_path / "ds"
     assert [json.loads(line)["instance_id"] for line in (ds / "harvest.jsonl").read_text().splitlines()] == ["a-1"]
-    assert (ds / "snapshots" / "a-1.tar.gz").stat().st_size == 2000
+    assert (ds / "snapshots" / "a-1.tgz").stat().st_size == 2000
+    assert json.loads((ds / "harvest.jsonl").read_text())["snapshot"] == "a-1.tgz"
     assert len((ds / "rejections.jsonl").read_text().splitlines()) == 2
     assert summary["verified"] == 1 and summary["missing_results"] == 1
     assert summary["rejection_reasons"] == {"env_install_failed": 2}
     assert "CC-BY-4.0" in (ds / "README.md").read_text()
+
+
+def test_aggregate_renames_legacy_tar_gz_snapshots(tmp_path):
+    res = tmp_path / "results"
+    _fake_result(res, "old-1", True, size=1500, suffix=".tar.gz")  # result from a run before snapshots were .tgz
+    _fake_result(res, "new-1", True, size=1200)
+    summary = aggregate.aggregate(res, tmp_path / "ds")
+    ds = tmp_path / "ds"
+    rows = {r["instance_id"]: r for r in map(json.loads, (ds / "harvest.jsonl").read_text().splitlines())}
+    assert {iid: r["snapshot"] for iid, r in rows.items()} == {"old-1": "old-1.tgz", "new-1": "new-1.tgz"}
+    assert sorted(p.name for p in (ds / "snapshots").iterdir()) == ["new-1.tgz", "old-1.tgz"]
+    assert (ds / "snapshots" / "old-1.tgz").read_bytes() == (res / "old-1" / "old-1.tar.gz").read_bytes()
+    assert summary["verified"] == 2
+
+
+def test_aggregate_clears_legacy_snapshots_from_an_existing_output_dir(tmp_path, monkeypatch):
+    ds = tmp_path / "ds"
+    (ds / "snapshots").mkdir(parents=True)
+    for name in ("old-1.tar.gz", "new-1.tar.gz", "gone-1.tar.gz"):  # left by an aggregate from an older run
+        (ds / "snapshots" / name).write_bytes(b"stale")
+    res = tmp_path / "results"
+    _fake_result(res, "old-1", True, size=1500, suffix=".tar.gz")
+    _fake_result(res, "new-1", True, size=1200)
+    aggregate.aggregate(res, ds)
+    assert sorted(p.name for p in (ds / "snapshots").iterdir()) == ["new-1.tgz", "old-1.tgz"]
+    assert (ds / "snapshots" / "old-1.tgz").read_bytes() == (res / "old-1" / "old-1.tar.gz").read_bytes()
+
+    # The upload guard that asked for the re-run now lets the folder through.
+    monkeypatch.setenv("KAGGLE_USERNAME", "someone")
+    monkeypatch.setenv("KAGGLE_KEY", "k")
+    calls = []
+
+    def runner(cmd, **kw):
+        calls.append(cmd)
+        created = any(c[2] == "create" for c in calls)
+        if cmd[2] == "status":
+            return subprocess.CompletedProcess(cmd, 0 if created else 1, "ready" if created else "")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    assert kaggle_upload.upload(ds, "slug", "t", "m", runner=runner, ready_timeout=0) == "created"
 
 
 def test_aggregate_rejects_untrusted_result_paths(tmp_path):
@@ -122,7 +164,7 @@ def test_aggregate_rejects_untrusted_result_paths(tmp_path):
     summary = aggregate.aggregate(res, tmp_path / "ds")
     ds = tmp_path / "ds"
     assert [json.loads(line)["instance_id"] for line in (ds / "harvest.jsonl").read_text().splitlines()] == ["a-1"]
-    assert sorted(p.name for p in (ds / "snapshots").iterdir()) == ["a-1.tar.gz"]
+    assert sorted(p.name for p in (ds / "snapshots").iterdir()) == ["a-1.tgz"]
     assert not (tmp_path / "payload.py").exists()
     assert summary["results"] == 3 and summary["rejection_reasons"] == {"invalid_result": 2}
     rejected = {json.loads(line)["instance_id"] for line in (ds / "rejections.jsonl").read_text().splitlines()}
@@ -200,8 +242,13 @@ def test_kaggle_upload_creates_private_dataset(tmp_path, monkeypatch):
 
     def runner(cmd, **kw):
         calls.append(cmd)
-        return subprocess.CompletedProcess(cmd, 1 if cmd[2] == "status" else 0)
+        created = any(c[2] == "create" for c in calls)
+        if cmd[2] == "status":
+            return subprocess.CompletedProcess(cmd, 0 if created else 1, "ready" if created else "")
+        return subprocess.CompletedProcess(cmd, 0)
 
-    assert kaggle_upload.upload(tmp_path, "slug", "t", "m", runner=runner) == "created"
-    assert calls[-1][:3] == ["kaggle", "datasets", "create"] and "--public" not in calls[-1]
+    assert kaggle_upload.upload(tmp_path, "slug", "t", "m", runner=runner, ready_timeout=0) == "created"
+    create = [c for c in calls if c[2] == "create"]
+    assert len(create) == 1 and "--public" not in create[0]
+    assert calls[-1][:3] == ["kaggle", "datasets", "status"]  # waited for the dataset to be ready
     assert json.loads((tmp_path / "dataset-metadata.json").read_text())["id"] == "someone/slug"
