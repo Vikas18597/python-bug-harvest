@@ -50,6 +50,10 @@ def aggregate(results_dir: Path, out_dir: Path, *, candidates_total: int | None 
     out_dir.mkdir(parents=True, exist_ok=True)
     snaps = out_dir / "snapshots"
     snaps.mkdir(exist_ok=True)
+    # An output folder from an older run can hold .tar.gz snapshots, which the Kaggle upload refuses. This run
+    # writes every snapshot it publishes as .tgz, so drop them all, also those of ids missing from these results.
+    for legacy in snaps.glob(f"*{LEGACY_SNAPSHOT_SUFFIX}"):
+        legacy.unlink()
     results = []
     for path in sorted(results_dir.glob("*/result.json")):
         result = json.loads(path.read_text(encoding="utf-8"))

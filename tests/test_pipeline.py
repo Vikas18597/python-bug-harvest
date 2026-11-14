@@ -116,6 +116,33 @@ def test_aggregate_renames_legacy_tar_gz_snapshots(tmp_path):
     assert summary["verified"] == 2
 
 
+def test_aggregate_clears_legacy_snapshots_from_an_existing_output_dir(tmp_path, monkeypatch):
+    ds = tmp_path / "ds"
+    (ds / "snapshots").mkdir(parents=True)
+    for name in ("old-1.tar.gz", "new-1.tar.gz", "gone-1.tar.gz"):  # left by an aggregate from an older run
+        (ds / "snapshots" / name).write_bytes(b"stale")
+    res = tmp_path / "results"
+    _fake_result(res, "old-1", True, size=1500, suffix=".tar.gz")
+    _fake_result(res, "new-1", True, size=1200)
+    aggregate.aggregate(res, ds)
+    assert sorted(p.name for p in (ds / "snapshots").iterdir()) == ["new-1.tgz", "old-1.tgz"]
+    assert (ds / "snapshots" / "old-1.tgz").read_bytes() == (res / "old-1" / "old-1.tar.gz").read_bytes()
+
+    # The upload guard that asked for the re-run now lets the folder through.
+    monkeypatch.setenv("KAGGLE_USERNAME", "someone")
+    monkeypatch.setenv("KAGGLE_KEY", "k")
+    calls = []
+
+    def runner(cmd, **kw):
+        calls.append(cmd)
+        created = any(c[2] == "create" for c in calls)
+        if cmd[2] == "status":
+            return subprocess.CompletedProcess(cmd, 0 if created else 1, "ready" if created else "")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    assert kaggle_upload.upload(ds, "slug", "t", "m", runner=runner, ready_timeout=0) == "created"
+
+
 def test_aggregate_rejects_untrusted_result_paths(tmp_path):
     res = tmp_path / "results"
     _fake_result(res, "a-1", True)

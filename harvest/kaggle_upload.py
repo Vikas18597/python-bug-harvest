@@ -5,7 +5,8 @@ Auth (https://github.com/Kaggle/kaggle-cli/blob/main/docs/README.md#authenticati
 
 Kaggle accepts the files before it processes them, and a dataset whose processing fails never becomes visible:
 `kaggle datasets status` keeps failing as if it did not exist. So after the CLI call the upload polls the status
-until the dataset (or its new version) is ready, and fails otherwise.
+until the dataset (or its new version) is ready, and fails otherwise. A new version is told apart from the current
+one by its version number, so versioning an existing dataset refuses to start when the CLI reports none.
 """
 
 from __future__ import annotations
@@ -94,7 +95,8 @@ def wait_until_ready(dataset_id: str, *, after_version: int | None = None, runne
                      sleep=time.sleep, clock=time.monotonic) -> int | None:
     """Poll until `dataset_id` is ready and, after a new version, newer than `after_version`. Returns its version.
 
-    Raises KaggleUploadError when Kaggle reports `error` or nothing ready shows up within `timeout` seconds.
+    Sleeps never run past the deadline, so the last check happens at the deadline and none after it. Raises
+    KaggleUploadError when Kaggle reports `error` or nothing ready shows up within `timeout` seconds.
     """
     deadline = clock() + timeout
     while True:
@@ -104,7 +106,8 @@ def wait_until_ready(dataset_id: str, *, after_version: int | None = None, runne
             return version
         if status == "error":
             raise KaggleUploadError(f"Kaggle upload: Kaggle failed to process {dataset_id} (status: error).")
-        if clock() >= deadline:
+        remaining = deadline - clock()
+        if remaining <= 0:
             seen = ("not visible (`kaggle datasets status` fails)" if status is None
                     else f"{status}, version {version}")
             what = f"a version newer than {after_version} of {dataset_id}" if after_version is not None else dataset_id
@@ -113,7 +116,7 @@ def wait_until_ready(dataset_id: str, *, after_version: int | None = None, runne
                 "the files but did not finish processing them; a dataset whose processing failed stays invisible. "
                 "The same slug can be uploaded again."
             )
-        sleep(interval)
+        sleep(min(interval, remaining))
 
 
 def upload(data_dir: Path, slug: str, title: str, message: str, runner=subprocess.run, *,
@@ -148,10 +151,16 @@ def upload(data_dir: Path, slug: str, title: str, message: str, runner=subproces
     status, before = dataset_state(dataset_id, runner)
     exists = status is not None
     if exists:
+        if before is None:
+            # Without the current version number, the old version's `ready` would pass for the new one.
+            raise KaggleUploadError(
+                f"Kaggle upload: {dataset_id} exists but `kaggle datasets status` reported no version number for it "
+                f"(status: {status}), so a new version could not be told apart from the current one. Nothing was "
+                "uploaded. Use kaggle==2.2.5 (the `kaggle` extra), whose `kaggle datasets status --format json` "
+                "reports it, and run the upload again."
+            )
         cmd = ["kaggle", "datasets", "version", "-p", str(data_dir), "-m", message, "--dir-mode", "zip"]
         action = "versioned"
-        if before is None:
-            print("Kaggle upload: the CLI reports no version numbers; only the dataset status is checked.", flush=True)
     else:
         # `create` without --public makes the dataset private.
         cmd = ["kaggle", "datasets", "create", "-p", str(data_dir), "--dir-mode", "zip"]

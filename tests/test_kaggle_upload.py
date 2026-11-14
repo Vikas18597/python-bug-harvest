@@ -198,6 +198,35 @@ def test_processing_error_fails_without_waiting(tmp_path, creds):
     assert clock.sleeps == []
 
 
+def test_short_timeout_caps_the_sleep(tmp_path, creds):
+    clock = FakeClock()
+    runner = FakeRunner(states=[None])
+    with pytest.raises(kaggle_upload.KaggleUploadError, match="alice/slug was not ready after 5s"):
+        _upload(tmp_path, runner, clock, timeout=5, interval=30)
+    assert clock.sleeps == [5] and clock.now == 5
+
+
+def test_last_check_runs_at_the_deadline(tmp_path, creds):
+    clock = FakeClock()
+    runner = FakeRunner(states=[None, None, ("ready", 1)])
+    assert _upload(tmp_path, runner, clock, timeout=45, interval=30) == "created"
+    assert clock.sleeps == [30, 15]
+
+
+def test_ready_after_the_deadline_is_not_accepted():
+    clock = FakeClock()
+
+    def runner(cmd, **kwargs):  # the dataset becomes ready at t=60, after the 45 s deadline
+        if clock.now < 60:
+            return subprocess.CompletedProcess(cmd, 1, "", "403 Client Error: Forbidden")
+        return subprocess.CompletedProcess(cmd, 0, json.dumps({"status": "ready", "current_version_number": 1}), "")
+
+    with pytest.raises(kaggle_upload.KaggleUploadError, match="alice/slug was not ready after 45s"):
+        kaggle_upload.wait_until_ready("alice/slug", runner=runner, timeout=45, interval=30,
+                                       sleep=clock.sleep, clock=clock)
+    assert clock.sleeps == [30, 15] and clock.now == 45
+
+
 def test_version_waits_for_the_new_version(tmp_path, creds, capsys):
     clock = FakeClock()
     runner = FakeRunner(existing=("ready", 3), states=[("ready", 3), ("pending", 4), ("ready", 4)])
@@ -217,6 +246,15 @@ def test_cli_without_format_option_falls_back_to_plain_status(tmp_path, creds):
     runner = FakeRunner(states=[None, ("ready", None)], json_format=False)
     assert _upload(tmp_path, runner) == "created"
     assert ["kaggle", "datasets", "status", "alice/slug"] in runner.calls
+
+
+@pytest.mark.parametrize("json_format", [False, True])  # plain-status CLI, or JSON without a version number
+def test_version_without_a_version_number_is_refused_before_upload(tmp_path, creds, json_format):
+    runner = FakeRunner(existing=("ready", None), json_format=json_format)
+    with pytest.raises(kaggle_upload.KaggleUploadError, match="reported no version number") as err:
+        _upload(tmp_path, runner)
+    assert "kaggle==2.2.5" in str(err.value) and "Nothing was uploaded" in str(err.value)
+    assert runner.uploads() == []
 
 
 @pytest.mark.parametrize("stdout,expected", [

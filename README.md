@@ -82,7 +82,8 @@ pieces that failed, as `{"cmd", "status": "skipped" | "failed"}`; not part of th
 
 Snapshots are gzipped `git archive` tarballs (no `.git` directory, no submodule contents), with every path prefixed
 by `<instance_id>/`. They are named `<instance_id>.tgz` (see [Kaggle upload](#kaggle-upload)), and the `snapshot` field
-always holds the file name. Results from older runs, whose snapshots were named `.tar.gz`, are renamed by aggregate.
+always holds the file name. Results from older runs, whose snapshots were named `.tar.gz`, are renamed by aggregate,
+and it deletes the `.tar.gz` snapshots an older run left in its output folder.
 
 Rejection reasons: `clone_failed`, `python_unavailable`, `env_install_failed`, `test_patch_apply_failed`,
 `gold_patch_apply_failed`, `tests_timeout`, `no_tests_collected`, `f2p_passes_without_fix`,
@@ -113,7 +114,9 @@ With credentials, the step installs `kaggle==2.2.5` plus `six` (also the `kaggle
 `six` is listed explicitly because kaggle 1.8.4+ no longer declares it although the CLI still imports it. The step
 logs `Kaggle upload: created|versioned private dataset ...` only after the `kaggle datasets` call succeeds and
 Kaggle has processed the upload: it polls `kaggle datasets status` until the dataset, or its new version, is ready.
-A failed call, status `error`, or nothing ready within 30 minutes (`--ready-timeout`) fails the job.
+A failed call, status `error`, or nothing ready within 30 minutes (`--ready-timeout`) fails the job. A new version
+is recognised by the version number that `kaggle datasets status --format json` reports; with a CLI that reports
+none, versioning an existing slug fails before anything is uploaded.
 
 Kaggle unpacks uploaded archives, including archives inside them: the `snapshots.zip` that `--dir-mode zip` builds
 and every `.tar.gz` in it. Some source trees, for example one with a directory named `__main__` or a path containing
